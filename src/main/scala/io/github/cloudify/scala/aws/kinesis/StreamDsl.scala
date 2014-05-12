@@ -5,6 +5,7 @@ import com.amazonaws.services.kinesis.model
 import scala.collection.JavaConverters._
 import java.nio.ByteBuffer
 import java.lang.Boolean
+import io.github.cloudify.scala.aws.kinesis.Requests.PutRecordAsync
 
 /**
  * DSL for dealing with Streams
@@ -86,6 +87,11 @@ trait StreamDsl {
    * Puts some data in the stream
    */
   def put(data: ByteBuffer, partitionKey: String): Requests.PutRecord
+
+  /**
+   * put data asynchronous
+   */
+  def putAsync(data : ByteBuffer, partitionKey : String) : Requests.PutRecordAsync
 
 }
 
@@ -171,6 +177,7 @@ object Definitions {
 
     def put(data: ByteBuffer, partitionKey: String): Requests.PutRecord = Requests.PutRecord(this, data, partitionKey)
 
+    def putAsync(data: ByteBuffer, partitionKey: String): PutRecordAsync = Requests.PutRecordAsync(this, data, partitionKey)
   }
 
   case class StreamDescription(streamDef: Stream, result: model.DescribeStreamResult) extends StreamDescriptionDsl {
@@ -213,6 +220,11 @@ object Definitions {
     def sequenceNumber: String = result.getSequenceNumber
   }
 
+  case class PutResultAsync(result: java.util.concurrent.Future[model.PutRecordResult]) extends PutResultDsl {
+    def shardId: String = "NA"
+    def sequenceNumber: String = "NA"
+  }
+
 }
 
 object Requests {
@@ -242,6 +254,13 @@ object Requests {
   case class ListStreamShards(streamDef: Definitions.Stream)
 
   case class PutRecord(streamDef: Definitions.Stream, data: ByteBuffer, partitionKey: String, minSeqNumber: Option[String] = None, seqNumberForOrdering: Option[String] = None, explicitHashKey: Option[String] = None) extends PutRecordDsl[PutRecord] {
+    def withExclusiveMinimumSequenceNumber(seqNumber: String) = this.copy(minSeqNumber = Some(seqNumber))
+    def withoutExclusiveMinimumSequenceNumber = this.copy(minSeqNumber = None)
+    def withSequenceNumberForOrdering(seqNumber: String) = this.copy(seqNumberForOrdering = Some(seqNumber))
+    def withExplicitHashKey(hashKey: String) = this.copy(explicitHashKey = Some(hashKey))
+  }
+
+  case class PutRecordAsync(streamDef: Definitions.Stream, data: ByteBuffer, partitionKey: String, minSeqNumber: Option[String] = None, seqNumberForOrdering: Option[String] = None, explicitHashKey: Option[String] = None) extends PutRecordDsl[PutRecordAsync] {
     def withExclusiveMinimumSequenceNumber(seqNumber: String) = this.copy(minSeqNumber = Some(seqNumber))
     def withoutExclusiveMinimumSequenceNumber = this.copy(minSeqNumber = None)
     def withSequenceNumberForOrdering(seqNumber: String) = this.copy(seqNumberForOrdering = Some(seqNumber))

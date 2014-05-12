@@ -1,7 +1,7 @@
 package io.github.cloudify.scala.aws.kinesis
 
 import scala.language.implicitConversions
-import com.amazonaws.services.kinesis.{AmazonKinesisClient, AmazonKinesis}
+import com.amazonaws.services.kinesis.{AmazonKinesisClient, AmazonKinesis, AmazonKinesisAsyncClient}
 import com.amazonaws.services.kinesis.model
 import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
@@ -9,6 +9,10 @@ import scala.collection.JavaConversions._
 import com.amazonaws.auth.{AWSCredentials, AWSCredentialsProvider}
 import Implicits._
 import scala.util.{Failure, Success, Try}
+import com.amazonaws.handlers.AsyncHandler
+import com.amazonaws.services.kinesis.model.{PutRecordResult, PutRecordRequest}
+import com.typesafe.scalalogging.Logger
+import org.slf4j.LoggerFactory
 
 /**
  * The Kinesis API client.
@@ -45,11 +49,27 @@ trait Client {
 
   def execute(r: Requests.PutRecord)(implicit ec: ExecutionContext): Future[PutResult]
 
+  def execute(r: Requests.PutRecordAsync)(implicit ec: ExecutionContext): Future[PutResultAsync]
+
   def execute(r: Requests.ListStreamShards)(implicit ec: ExecutionContext): Future[Iterable[Shard]]
 
   def execute(r: Requests.ShardIterator)(implicit ec: ExecutionContext): Future[ShardIterator]
 
   def execute(r: Requests.NextRecords)(implicit ec: ExecutionContext): Future[NextRecords]
+
+}
+
+class MyAsyncHandler extends AsyncHandler[PutRecordRequest, PutRecordResult] {
+  val logger = LoggerFactory.getLogger(classOf[MyAsyncHandler])
+
+  override def onError(exception: Exception): Unit = {
+    logger.error("Kinesis : Error Put Data", exception)
+  }
+
+  override def onSuccess(request: PutRecordRequest, result: PutRecordResult): Unit = {
+    logger.debug(s"Put Message $result")
+  }
+
 
 }
 
@@ -62,6 +82,7 @@ trait Client {
  */
 class ClientImpl(val kinesisClient: AmazonKinesis) extends Client {
   import Definitions._
+  val asyncHandler = new MyAsyncHandler()
 
   def execute(r: Requests.CreateStream)(implicit ec: ExecutionContext): Future[Stream] = Future {
     val createStreamRequest = new model.CreateStreamRequest()
@@ -127,6 +148,21 @@ class ClientImpl(val kinesisClient: AmazonKinesis) extends Client {
     PutResult(putRecordResult)
   }
 
+  def execute(r: Requests.PutRecordAsync)(implicit ec: ExecutionContext): Future[PutResultAsync] = Future {
+    val putRecordRequest = new model.PutRecordRequest()
+    putRecordRequest.setStreamName(r.streamDef.name)
+    putRecordRequest.setData(r.data)
+    putRecordRequest.setPartitionKey(r.partitionKey)
+    r.seqNumberForOrdering.foreach { n => putRecordRequest.setSequenceNumberForOrdering(n) }
+    r.explicitHashKey.foreach { k => putRecordRequest.setExplicitHashKey(k) }
+
+    val putRecordResult = kinesisClient.asInstanceOf[AmazonKinesisAsyncClient].putRecordAsync(putRecordRequest,asyncHandler)
+
+    PutResultAsync(putRecordResult)
+  }
+
+
+
   def execute(r: Requests.ListStreamShards)(implicit ec: ExecutionContext): Future[Iterable[Shard]] = Future {
     val describeStreamRequest = new model.DescribeStreamRequest()
     describeStreamRequest.setStreamName(r.streamDef.name)
@@ -181,20 +217,20 @@ object Client {
   /**
    * Creates a client from an `AWSCredentialsProvider`.
    */
-  def fromCredentials(credentialsProvider: AWSCredentialsProvider): Client = {
-    val kinesisClient = new AmazonKinesisClient(credentialsProvider)
+  def fromCredentials(credentialsProvider: AWSCredentialsProvider, asyncClient : Boolean): Client = {
+    val kinesisClient = if (asyncClient) new AmazonKinesisAsyncClient(credentialsProvider) else new AmazonKinesisClient(credentialsProvider)
     fromClient(kinesisClient)
   }
 
   /**
    * Creates a client from an access key and a secret key.
    */
-  def fromCredentials(accessKey: String, secretKey: String): Client = {
+  def fromCredentials(accessKey: String, secretKey: String, asyncClient : Boolean): Client = {
     val credentials = new AWSCredentials {
       def getAWSAccessKeyId: String = accessKey
       def getAWSSecretKey: String = secretKey
     }
-    val kinesisClient = new AmazonKinesisClient(credentials)
+    val kinesisClient = if (asyncClient) new AmazonKinesisAsyncClient(credentials) else new AmazonKinesisClient(credentials)
     fromClient(kinesisClient)
   }
 
@@ -234,6 +270,8 @@ object Client {
     implicit def implicitExecute(r: Requests.PutRecord)(implicit client: Client, ec: ExecutionContext) =
       client.execute(r)(ec)
 
+    implicit def implicitExecute(r: Requests.PutRecordAsync)(implicit client: Client, ec: ExecutionContext) =
+      client.execute(r)(ec)
   }
 
 }

@@ -10,7 +10,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 object KinesisExample extends App {
 
   // Declare an implicit Kinesis `Client` that will be used to make API calls.
-  implicit val kinesisClient = Client.fromCredentials(DefaultHomePropertiesFile)
+  implicit val kinesisClient = Client.fromCredentials(DefaultHomePropertiesFile, false)
 
   // First we create the stream.
   val createStream = for {
